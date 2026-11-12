@@ -35,3 +35,9 @@ Voice recording works on localhost and on HTTPS sites. Browsers generally block 
 The server creates `data/orbit.sqlite3` the first time it runs. It stores account records, password hashes, friendships, messages, and voice-note audio. Keep this file backed up to preserve the data. The database and Python files are blocked from static web access. This starter server uses plain HTTP for a trusted LAN and has no encryption in transit; do not expose it to an untrusted network.
 
 No third-party packages or build step are required. Set `ORBIT_PORT` to use a different port, for example `ORBIT_PORT=8080 python server.py`.
+
+## Deploy on Render for free
+
+The Render Blueprint uses its Free web service and a separate hosted Turso database. It needs `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` environment variables, set privately in Render and never committed to Git. Create a Turso database, copy its database URL and auth token, then choose **New → Blueprint** in Render and connect `KING-YOSEF-0/orbit-messenger`. Enter the two variables when Render prompts you. The Render service may sleep after inactivity and take about a minute to wake; its own local files are temporary, while account and chat data lives in Turso. Render documents these Free tier limits [here](https://render.com/docs/free). Turso lists a $0 Free plan with usage limits [here](https://turso.tech/pricing); keep database overages disabled so usage cannot turn into charges.
+
+For local development, Orbit continues to use `data/orbit.sqlite3`. If `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set, it instead connects to Turso. Render supplies the HTTP `PORT` environment variable automatically; locally, `ORBIT_PORT` remains supported.

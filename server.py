@@ -16,19 +16,89 @@ from pathlib import Path
 from urllib.parse import unquote, urlparse
 
 ROOT = Path(__file__).resolve().parent
-DB_PATH = ROOT / "data" / "orbit.sqlite3"
-PORT = int(os.environ.get("ORBIT_PORT", "8000"))
+DATA_DIR = Path(os.environ.get("ORBIT_DATA_DIR", str(ROOT / "data")))
+DB_PATH = DATA_DIR / "orbit.sqlite3"
+TURSO_DATABASE_URL = os.environ.get("TURSO_DATABASE_URL", "").strip()
+TURSO_AUTH_TOKEN = os.environ.get("TURSO_AUTH_TOKEN", "").strip()
+PORT = int(os.environ.get("PORT", os.environ.get("ORBIT_PORT", "8000")))
 HOST = os.environ.get("ORBIT_HOST", "0.0.0.0")
 MAX_BODY = 12 * 1024 * 1024
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 
+try:
+    import turso_serverless
+except ImportError:
+    turso_serverless = None
+
+INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
+if turso_serverless is not None and hasattr(turso_serverless, "IntegrityError"):
+    INTEGRITY_ERRORS += (turso_serverless.IntegrityError,)
+
+
+class TursoRow(dict):
+    """Mapping-style row compatible with Orbit's sqlite3.Row lookups."""
+
+    def __init__(self, names, values):
+        super().__init__(zip(names, values))
+
+
+class TursoCursor:
+    def __init__(self, cursor):
+        self.cursor = cursor
+        self.names = [column[0] for column in (cursor.description or ())]
+
+    def _row(self, row):
+        if row is None:
+            return None
+        if hasattr(row, "keys"):
+            return TursoRow(row.keys(), (row[key] for key in row.keys()))
+        return TursoRow(self.names, row)
+
+    def fetchone(self):
+        return self._row(self.cursor.fetchone())
+
+    def fetchall(self):
+        return [self._row(row) for row in self.cursor.fetchall()]
+
+    def __iter__(self):
+        return (self._row(row) for row in self.cursor)
+
+    @property
+    def lastrowid(self):
+        return self.cursor.lastrowid
+
+
+class TursoConnection:
+    def __init__(self, connection):
+        self.connection = connection
+
+    def execute(self, sql, parameters=()):
+        return TursoCursor(self.connection.execute(sql, parameters))
+
+    def commit(self):
+        self.connection.commit()
+
+    def rollback(self):
+        self.connection.rollback()
+
+    def close(self):
+        self.connection.close()
+
 
 @contextmanager
 def db():
-    DB_PATH.parent.mkdir(exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=15)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA foreign_keys=ON")
+    if TURSO_DATABASE_URL:
+        if not TURSO_AUTH_TOKEN:
+            raise RuntimeError("TURSO_AUTH_TOKEN is required when TURSO_DATABASE_URL is set.")
+        if turso_serverless is None:
+            raise RuntimeError("Install requirements.txt to use the hosted database.")
+        conn = TursoConnection(turso_serverless.connect(TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN))
+    else:
+        DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+        conn = sqlite3.connect(DB_PATH, timeout=15)
+    if not TURSO_DATABASE_URL:
+        conn.row_factory = sqlite3.Row
+        conn.execute("PRAGMA foreign_keys=ON")
     try:
         yield conn
         conn.commit()
@@ -41,7 +111,7 @@ def db():
 
 def init_db():
     with db() as c:
-        c.executescript("""
+        schema = """
         CREATE TABLE IF NOT EXISTS users(
           id INTEGER PRIMARY KEY, username TEXT NOT NULL UNIQUE COLLATE NOCASE,
           display_name TEXT NOT NULL, password_hash TEXT NOT NULL, bio TEXT NOT NULL DEFAULT '',
@@ -79,7 +149,10 @@ def init_db():
           text TEXT NOT NULL, created_at INTEGER NOT NULL
         );
         CREATE INDEX IF NOT EXISTS server_msg_time ON server_messages(server_id,id);
-        """)
+        """
+        for statement in schema.split(";"):
+            if statement.strip():
+                c.execute(statement)
         # Upgrade databases created by earlier Orbit versions.
         user_columns = {row["name"] for row in c.execute("PRAGMA table_info(users)")}
         if "avatar" not in user_columns:
@@ -262,7 +335,7 @@ class Handler(SimpleHTTPRequestHandler):
                         hashed = hashlib.pbkdf2_hmac("sha256", password.encode(), salt, 260000)
                         try:
                             cur = c.execute("INSERT INTO users(username,display_name,password_hash,created_at) VALUES(?,?,?,?)", (username, display, salt.hex() + ":" + hashed.hex(), int(time.time())))
-                        except sqlite3.IntegrityError:
+                        except INTEGRITY_ERRORS:
                             return self.send_json({"error": "That username is already taken."}, 409)
                         uid = cur.lastrowid
                     else:
@@ -301,7 +374,7 @@ class Handler(SimpleHTTPRequestHandler):
                     if not server:
                         return self.send_json({"error":"That invite code was not found."}, 404)
                     c.execute("INSERT OR IGNORE INTO server_members(server_id,user_id,joined_at) VALUES(?,?,?)", (server["id"],me,int(time.time())))
-                    count = c.execute("SELECT COUNT(*) FROM server_members WHERE server_id=?", (server["id"],)).fetchone()[0]
+                    count = c.execute("SELECT COUNT(*) AS count FROM server_members WHERE server_id=?", (server["id"],)).fetchone()["count"]
                     return self.send_json({"server":{"id":server["id"],"name":server["name"],"inviteCode":server["invite_code"],"ownerId":server["owner_id"],"memberCount":count}})
                 server_message_match = re.fullmatch(r"/api/servers/(\d+)/messages", path)
                 if server_message_match:
@@ -390,7 +463,7 @@ class Handler(SimpleHTTPRequestHandler):
                             c.execute("UPDATE users SET username=?,display_name=?,bio=?,avatar=?,avatar_mime=? WHERE id=?", (username, display, bio, avatar, avatar_mime, me))
                         else:
                             c.execute("UPDATE users SET username=?,display_name=?,bio=? WHERE id=?", (username, display, bio, me))
-                    except sqlite3.IntegrityError:
+                    except INTEGRITY_ERRORS:
                         return self.send_json({"error": "That username is already taken."}, 409)
                     user = c.execute("SELECT * FROM users WHERE id=?", (me,)).fetchone()
                 return self.send_json({"user": user_json(user)})
