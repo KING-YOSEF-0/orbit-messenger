@@ -1,0 +1,16 @@
+{
+  "name": "orbit-messenger",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node build-assets.mjs",
+    "dev": "npm run build && wrangler dev",
+    "deploy": "npm run build && wrangler deploy"
+  },
+  "dependencies": {
+    "@libsql/client": "^0.18.0"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
