@@ -1,0 +1,11 @@
+# Keep live accounts, chats, voice notes, and profile photos out of Git.
+data/
+
+# Local Python and environment files
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+.env.*
+!.env.example
