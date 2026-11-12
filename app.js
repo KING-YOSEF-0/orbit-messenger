@@ -1,4 +1,5 @@
 const API = '/api';
+const STATIC_GITHUB_PAGES = location.hostname.endsWith('github.io');
 let token = localStorage.getItem('orbitToken') || '';
 let me = null;
 let activePerson = null;
@@ -57,6 +58,15 @@ function showApp() {
   if(invite){api('/servers/join',{method:'POST',body:JSON.stringify({inviteCode:invite})}).then(({server})=>{history.replaceState({},'',location.pathname);refreshServers();openServer(server);toast(`Joined ${server.name}.`);}).catch(e=>toast(e.message));}
 }
 async function boot() {
+  if (STATIC_GITHUB_PAGES) {
+    token = '';
+    localStorage.removeItem('orbitToken');
+    authScreen(false);
+    $('#authError').textContent = 'This GitHub Pages copy has no account server. Sign-in is disabled here, and Orbit will not send your password.';
+    $('#authForm').querySelectorAll('input,button').forEach(control => { control.disabled = true; });
+    $('#authSwitch').disabled = true;
+    return;
+  }
   if (!token) return authScreen(false);
   try { const result = await api('/me'); if (!result.user) throw new Error('Sign in to continue.'); me = result.user; showApp(); }
   catch { token = ''; localStorage.removeItem('orbitToken'); authScreen(false); }
