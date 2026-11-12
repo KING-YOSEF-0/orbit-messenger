@@ -26,13 +26,13 @@ MAX_BODY = 12 * 1024 * 1024
 USERNAME_RE = re.compile(r"^[A-Za-z0-9_]{3,24}$")
 
 try:
-    import turso_serverless
+    import libsql
 except ImportError:
-    turso_serverless = None
+    libsql = None
 
 INTEGRITY_ERRORS = (sqlite3.IntegrityError,)
-if turso_serverless is not None and hasattr(turso_serverless, "IntegrityError"):
-    INTEGRITY_ERRORS += (turso_serverless.IntegrityError,)
+if libsql is not None and hasattr(libsql, "IntegrityError"):
+    INTEGRITY_ERRORS += (libsql.IntegrityError,)
 
 
 class TursoRow(dict):
@@ -90,9 +90,9 @@ def db():
     if TURSO_DATABASE_URL:
         if not TURSO_AUTH_TOKEN:
             raise RuntimeError("TURSO_AUTH_TOKEN is required when TURSO_DATABASE_URL is set.")
-        if turso_serverless is None:
+        if libsql is None:
             raise RuntimeError("Install requirements.txt to use the hosted database.")
-        conn = TursoConnection(turso_serverless.connect(TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN))
+        conn = TursoConnection(libsql.connect(database=TURSO_DATABASE_URL, auth_token=TURSO_AUTH_TOKEN))
     else:
         DB_PATH.parent.mkdir(parents=True, exist_ok=True)
         conn = sqlite3.connect(DB_PATH, timeout=15)
