@@ -36,8 +36,15 @@ The server creates `data/orbit.sqlite3` the first time it runs. It stores accoun
 
 No third-party packages or build step are required. Set `ORBIT_PORT` to use a different port, for example `ORBIT_PORT=8080 python server.py`.
 
-## Deploy on Render for free
+## Deploy the full app on Cloudflare Workers
 
-The Render Blueprint uses its Free web service and a separate hosted Turso database. It needs `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` environment variables, set privately in Render and never committed to Git. Create a Turso database, copy its database URL and auth token, then choose **New → Blueprint** in Render and connect `KING-YOSEF-0/orbit-messenger`. Enter the two variables when Render prompts you. The Render service may sleep after inactivity and take about a minute to wake; its own local files are temporary, while account and chat data lives in Turso. Render documents these Free tier limits [here](https://render.com/docs/free). Turso lists a $0 Free plan with usage limits [here](https://turso.tech/pricing); keep database overages disabled so usage cannot turn into charges.
+GitHub Pages can publish the static files, but it cannot run Orbit's API. Sign-in is deliberately disabled on the current GitHub Pages copy so it never sends passwords to a static host. The `worker.js` Cloudflare Worker serves the same frontend and implements the API against Turso, so the browser and API share one HTTPS origin. The original Python server remains available for local development.
 
-For local development, Orbit continues to use `data/orbit.sqlite3`. If `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` are set, it instead connects to Turso. Render supplies the HTTP `PORT` environment variable automatically; locally, `ORBIT_PORT` remains supported.
+1. Install Node.js, then run `npm install` in this folder.
+2. Sign in to Cloudflare from your terminal with `npx wrangler login`.
+3. Add `TURSO_DATABASE_URL` and `TURSO_AUTH_TOKEN` as Worker secrets with `npx wrangler secret put TURSO_DATABASE_URL` and `npx wrangler secret put TURSO_AUTH_TOKEN`. Enter each value only at the prompt; never put the token in this repository.
+4. Run `npm run deploy` to build and publish Orbit.
+
+Workers Free is the default plan and has usage limits; Cloudflare currently documents 100,000 requests per day. Requests beyond the free limit fail until the quota resets. Turso also has its own limits. Review both providers' current plan terms, do not select a paid plan, and do not add a payment method. Free tiers and terms can change, so no provider can guarantee free hosting forever.
+
+For local development, `python server.py` continues to use `data/orbit.sqlite3`. The Cloudflare version requires the Turso URL and auth token as Worker secrets. Existing Turso databases are initialized and upgraded automatically on first API use.
